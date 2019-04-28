@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 from flask_script import Manager, Server
+
 from app import app
 
 manager = Manager(app)

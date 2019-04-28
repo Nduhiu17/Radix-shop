@@ -44,8 +44,6 @@ class Product:
         product = Product(id=item[0], name=item[1], created_by=item[2], buying_price=item[3],
                           date_created=item[4], date_modified=item[5])
 
-        # product_json = product.json_dump()
-        # product_json['stock'] = Stock.get_all_available_stock_products(product_id=id)
         return product
 
     @classmethod
@@ -121,14 +119,14 @@ class Stock:
 
         product_objects = []
         for item in rows:
-            product_retieved = Stock(id=item[0], product_id=item[1], available=item[2], quantity=item[3])
+            product_retieved = Stock(id=item[0], product_id=item[1], quantity=item[2], available=item[3])
             product_json = product_retieved.json_dump()
+            product_json['products'] = Product.get_by_id(item[1]).json_dump()
             product_objects.append(product_json)
-        print("these are available", product_objects)
         return product_objects
 
     @classmethod
-    def get_all_available_stock_products(cls,product_id):
+    def get_all_available_stock_products(cls, product_id):
         '''Factory method'''
         cursor.execute(
             f"SELECT * FROM public.stock WHERE available=True AND product_id={product_id};")
@@ -168,13 +166,6 @@ class Stock:
         cursor.execute(
             f"UPDATE public.stock SET available =False WHERE id = {self.id};")
 
-    # @staticmethod
-    # def check_enough_available_stock(self, quantity):
-    #     available_quantity = AvailableProduct.available_quantity(self)
-    #     if available_quantity - quantity < 0:
-    #         return True
-    #     return False
-
     def json_dump(self):
         return {
             "id": self.id,
@@ -183,53 +174,6 @@ class Stock:
             "availableQuantity": self.available_quantity()
         }
 
-
-# class SaleProduct:
-#     def __init__(self, id, sale_id, product_id, quantity):
-#         self.id = id
-#         self.sale_id = sale_id
-#         self.product_id = product_id
-#         self.quantity = quantity
-#
-#     def save(self):
-#         cursor.execute(
-#             f"INSERT INTO public.saleproducts(sale_id, product_id, quantity) VALUES({self.sale_id}, {self.product_id}, {self.quantity});")
-#
-#     def json_dump(self):
-#         return {
-#             "id": self.id,
-#             "sale_id": self.sale_id,
-#             "product": Product.get_by_id(self.product_id),
-#             "quantity": self.quantity
-#         }
-#
-#     @classmethod
-#     def get_sale_products(cls, sale_id):
-#         '''Factory method'''
-#         cursor.execute(
-#             f"SELECT * FROM public.saleproducts where sale_id = {sale_id};")
-#         rows = cursor.fetchall()
-#
-#         sale_objects = []
-#         for item in rows:
-#             sale = SaleProduct(id=item[0], sale_id=item[1], product_id=item[2], quantity=item[3])
-#             sale_objects.append(sale.json_dump())
-#         return sale_objects
-#
-#     @classmethod
-#     def get_by_product(cls, product_id):
-#         '''Factory method'''
-#         cursor.execute(
-#             f"SELECT * FROM public.saleproducts WHERE  product_id = {product_id};")
-#         rows = cursor.fetchall()
-#
-#         sale_objects = []
-#         for item in rows:
-#             sale = SaleProduct(id=item[0], sale_id=item[1], product_id=item[2], quantity=item[3])
-#
-#             sale_objects.append(sale)
-#
-#         return sale_objects
 
 class SaleStock:
     def __init__(self, id, sale_id, stock_id, quantity):
@@ -247,7 +191,6 @@ class SaleStock:
             "id": self.id,
             "sale_id": self.sale_id,
             "stock_id": self.stock_id,
-            # "product": Product.get_by_id(self.product_id),
             "quantity": self.quantity
         }
 
@@ -279,24 +222,6 @@ class SaleStock:
 
         return sale_objects
 
-#     @classmethod
-#     def get_by_stock(cls, product_id):
-#         '''Factory method'''
-#         cursor.execute(
-#             f"""
-# SELECT ss.id, ss.quantity, ss.sale_id, p."name", p.id as product_id, s.id as stock_id FROM salestock ss, stock s, products p where ss.stock_id = s.id and s.product_id = p.id;
-# """)
-#         rows = cursor.fetchall()
-#
-#         sale_objects = []
-#         for item in rows:
-#             sale = SaleStock(id=item[0], sale_id=item[1], product_id=item[2], quantity=item[3])
-#
-#             sale_objects.append(sale)
-#
-#         return sale_objects
-
-
 
 class SoldStock:
     def __init__(self, id, name, quantity, sale_id, product_id, stock_id):
@@ -310,7 +235,7 @@ class SoldStock:
     @classmethod
     def get_sale_products(cls, sale_id):
         '''Factory method'''
-        cursor.execute( f"""
+        cursor.execute(f"""
                 SELECT ss.id, ss.quantity, ss.sale_id, p."name", p.id as product_id, s.id as stock_id FROM salestock ss,
                 stock s, products p where ss.stock_id = s.id and s.product_id = p.id and ss.sale_id = {sale_id};
                 """)
@@ -318,8 +243,8 @@ class SoldStock:
 
         sale_objects = []
         for item in rows:
-            print("yyyyyyyyyyy777777777",item)
-            sale = SoldStock(id=item[0], quantity=item[1], sale_id=item[2], name=item[3], product_id=item[4], stock_id=item[5])
+            sale = SoldStock(id=item[0], quantity=item[1], sale_id=item[2], name=item[3], product_id=item[4],
+                             stock_id=item[5])
 
             sale_objects.append(sale.json_dump())
 
@@ -329,7 +254,6 @@ class SoldStock:
         return {
             "id": self.id,
             "name": self.name,
-            # "product": Product.get_by_id(self.product_id),
             "quantity": self.quantity,
             "sale_id": self.sale_id,
             "product_id": self.product_id,
@@ -371,7 +295,7 @@ class Sale:
             sale = Sale(id=item[0], buyer_name=item[1], status=item[2], created_by=item[3], date_created=item[4],
                         date_modified=item[5])
             sale_json = sale.json_dump()
-            sale_json["products"] = SaleProduct.get_sale_products(sale_id=sale.id)
+            sale_json["products"] = SaleStock.get_sale_stocks(sale_id=sale.id)
 
             sale_objects.append(sale_json)
 
@@ -389,7 +313,7 @@ class Sale:
             sale = Sale(id=item[0], buyer_name=item[1], status=item[2], created_by=item[3], date_created=item[4],
                         date_modified=item[5])
             sale_json = sale.json_dump()
-            sale_json["products"] = SaleProduct.get_sale_products(sale_id=sale.id)
+            sale_json["products"] = SaleStock.get_sale_stocks(sale_id=sale.id)
 
             sale_objects.append(sale_json)
 
@@ -407,7 +331,7 @@ class Sale:
             sale = Sale(id=item[0], buyer_name=item[1], status=item[2], created_by=item[3], date_created=item[4],
                         date_modified=item[5])
             sale_json = sale.json_dump()
-            sale_json["products"] = SaleProduct.get_sale_products(sale_id=sale.id)
+            sale_json["products"] = SaleStock.get_sale_stocks(sale_id=sale.id)
 
             sale_objects.append(sale_json)
 
@@ -524,7 +448,7 @@ class User:
     @classmethod
     def isAdmin(cls, user_id):
         user_permissions = UserPermission.get_user_permissions(user_id=user_id)
-        if user_permissions != []:
+        if user_permissions:
             list_permissions = []
             for index in range(len(user_permissions)):
                 for key in user_permissions[index]:
@@ -537,7 +461,7 @@ class User:
     @classmethod
     def isModerator(cls, user_id):
         user_permissions = UserPermission.get_user_permissions(user_id=user_id)
-        if user_permissions != []:
+        if user_permissions:
             list_permissions = []
             for index in range(len(user_permissions)):
                 for key in user_permissions[index]:

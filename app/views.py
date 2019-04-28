@@ -1,21 +1,25 @@
+from app.database import Database
+
+cursor = Database.connect_to_db()
+Database.create_database_tables()
+
 import re
 from datetime import datetime
 
 from flask import request
 from flask_jwt_extended import create_access_token
-from flask_jwt_extended import get_jwt_identity
-from flask_jwt_extended import jwt_required
-from flask_restplus import Resource, reqparse
 from flask_restplus import fields
 
-from app import api_v1
 from app.models import Sale, Product, User, UserPermission, Stock, SaleStock, SoldStock
 from utils.validator import Validate
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_restplus import reqparse, Resource
+from app import api_v1
 
 api_v1.namespaces.clear()
 
 ns = api_v1.namespace('api/v1',
-                      description='End points regarding Sale operations')
+                      description='End points regarding all product operations')
 ns1 = api_v1.namespace('api/v1/auth',
                        description='End points regarding User operations')
 ns2 = api_v1.namespace('api/v1',
@@ -23,6 +27,75 @@ ns2 = api_v1.namespace('api/v1',
 
 ns3 = api_v1.namespace('api/v1/products',
                        description='End points regarding Product operations')
+
+
+@ns.route('/sales/<int:sale_id>')
+class SaleResource(Resource):
+    '''Get all products resource'''
+
+    @ns.doc(security='apiKey')
+    @jwt_required
+    def get(self, sale_id):
+        '''Get a sale by id'''
+        sale = Sale.get_by_id(sale_id)
+        if sale is None:
+            return {"error": 404, "message": "sale not found"}, 404
+        logged_user = User.get_by_id(id=get_jwt_identity())['username']
+        if logged_user == sale.created_by or User.isAdmin(user_id=get_jwt_identity()):
+            sale_json = sale.json_dump()
+            sale_json["products"] = SaleStock.get_sale_stocks(sale_id=sale_id)
+            return {"message": "Ok", "data": sale_json}, 200
+        return {"message": "You are not authorised.Only admin or sale owner can get the sale"}, 401
+
+    @ns.doc(security='apiKey')
+    @jwt_required
+    def delete(self, sale_id):
+        '''Delete a sale record'''
+        sale = Sale.get_by_id(sale_id)
+        if sale is None:
+            return {"error": 404, "message": "sale not found"}, 404
+
+        logged_user = User.get_by_id(id=get_jwt_identity())['username']
+        if logged_user == sale.created_by or User.isAdmin(user_id=get_jwt_identity()):
+            if sale.status == "deleted":
+                return {"error": 400, "message": "The sale record has already been deleted"}, 400
+            sale.cancel()
+            return {"response": 204, "message": "successfully deleted"}, 204
+        return {"message": "You are not authorised.Only admin or sale owner can delete a sale"}, 401
+
+    @ns.doc(security='apiKey')
+    @jwt_required
+    def post(self, sale_id):
+        '''Add products to a sale'''
+        parser = reqparse.RequestParser()
+        parser.add_argument('product', help='The product field cannot be blank',
+                            required=True, type=int)
+        parser.add_argument('quantity', help='The quantity field cannot be blank',
+                            required=True, type=int)
+        data = parser.parse_args()
+        sale = Sale.get_by_id(sale_id)
+        if sale is None:
+            return {"error": 404, "message": "sale not found"}, 404
+        if sale.status == "submitted":
+            return {"message": "Forbidden.Sale is already submitted"}, 403
+        sale_json = sale.json_dump()
+
+        product = Product.get_by_id(id=data["product"])
+        if product is None:
+            return {"error": 404, "message": "product not found"}, 404
+
+        stocks = product.get_available_stocks()
+
+        if len(stocks) == 0:
+            return {"error": 404, "message": "product out of stock"}, 404
+
+        sale_product = SaleStock(id=None, sale_id=sale_id, stock_id=stocks[0].id, quantity=data["quantity"])
+        sale_product.save()
+        sale = Sale.get_by_id(sale_id)
+        sale_json = sale.json_dump()
+        sale_json["products"] = SoldStock.get_sale_products(sale_id=sale.id)
+        return {"message": "success", "data": sale_json}, 201
+
 
 sale_fields = api_v1.model('Sale', {
     'buyer_name': fields.String
@@ -141,16 +214,15 @@ class SaleResource(Resource):
     @jwt_required
     def put(self, sale_id):
         '''Close a sale)'''
-
         sale = Sale.get_by_id(sale_id)
-
         if sale is None:
             return {"error": 404, "message": "sale not found"}
         logged_user = User.get_by_id(id=get_jwt_identity())['username']
+
         if logged_user == sale.created_by or User.isAdmin(user_id=get_jwt_identity()):
             sale = Sale.get_by_id(sale_id)
             sale_json = sale.json_dump()
-            sale_json["products"] = SaleProduct.get_sale_products(sale_id=sale.id)
+            sale_json["products"] = SaleStock.get_sale_stocks(sale_id=sale.id)
             if not sale_json["products"]:
                 return {"Error": 400, "message": "You can't close a sale with no products"}, 400
             if sale.status == "submitted":
@@ -158,9 +230,9 @@ class SaleResource(Resource):
             sale.submit()
             sale = Sale.get_by_id(sale_id)
             sale_json = sale.json_dump()
-            sale_json["products"] = SaleProduct.get_sale_products(sale_id=sale.id)
+            sale_json["products"] = SaleStock.get_sale_stocks(sale_id=sale.id)
             return {"message": "successfuly closed the sale", "data": sale_json}, 200
-        return {"message": "Unauthorized,only an admin or sale owner can add products to a sale"}, 401
+        return {"message": "Unauthorized,only an admin or sale owner can close a sale"}, 403
 
     @ns.doc(security='apiKey')
     @jwt_required
@@ -199,12 +271,10 @@ class SaleResource(Resource):
         if product is None:
             return {"error": 404, "message": "product not found"}, 404
 
-
         stocks = product.get_available_stocks()
 
         if len(stocks) == 0:
             return {"error": 404, "message": "product out of stock"}, 404
-
 
         selected_stock = stocks[0]
         sale_quantity = data["quantity"]
@@ -216,14 +286,15 @@ class SaleResource(Resource):
         index = 0
         while sale_quantity > 0:
             if sale_quantity >= stocks[index].quantity:
-                temp_ss = SaleStock(id=None, sale_id=sale_id, stock_id=stocks[index].id, quantity=stocks[index].quantity)
+                temp_ss = SaleStock(id=None, sale_id=sale_id, stock_id=stocks[index].id,
+                                    quantity=stocks[index].quantity)
                 temp_ss.save()
                 sale_quantity -= stocks[index].quantity
             else:
                 temp_ss = SaleStock(id=None, sale_id=sale_id, stock_id=stocks[index].id, quantity=sale_quantity)
                 temp_ss.save()
                 sale_quantity -= sale_quantity
-            index +=1
+            index += 1
 
         sale_product = SaleStock(id=None, sale_id=sale_id, stock_id=stocks[index].id, quantity=data["quantity"])
         sale_product.save()
@@ -295,20 +366,23 @@ class ProductResource(Resource):
     @ns2.doc('list_products')
     @ns2.doc(security='apiKey')
     @jwt_required
-    def get(self,product_id):
+    def get(self, product_id):
         '''Get a product with its stock'''
         found_product = Product.get_by_id(id=product_id)
-
-        product_json = found_product.json_dump()
-        product_json['stock'] = Stock.get_by_product(product_id=product_id)
-        return {"message":"ok","data":product_json},200
+        if found_product:
+            product_json = found_product.json_dump()
+            product_json['stock'] = Stock.get_by_product(product_id=product_id)
+            return {"message": "ok", "data": product_json}, 200
+        return {"message": "No product with that id"}, 404
 
 
 @ns2.route('/stocks')
 class ProductResource(Resource):
     '''AvailableProduct resource'''
 
-    @ns2.doc('list_available_products')
+    products = 'list_available_products'
+
+    @ns2.doc(products)
     @ns2.doc(security='apiKey')
     @jwt_required
     def get(self):
@@ -319,7 +393,7 @@ class ProductResource(Resource):
     @ns3.doc(security='apiKey')
     @jwt_required
     def post(self):
-        '''Add available product.Admin only'''
+        '''Add stock.Admin only'''
 
         parser = reqparse.RequestParser()
         parser.add_argument('product_id', help='The product_id field cannot be blank',
@@ -327,9 +401,9 @@ class ProductResource(Resource):
         parser.add_argument('quantity', help='The quantity field cannot be blank',
                             required=True, type=int)
         data = parser.parse_args()
-        new_stock = Stock(id=None,product_id=data['product_id'],quantity=data['quantity'],available=True)
+        new_stock = Stock(id=None, product_id=data['product_id'], quantity=data['quantity'], available=True)
         new_stock.save()
-        return {"message": "stock added"},201
+        return {"message": "stock added"}, 201
 
 
 @ns2.route('/products?search=<string:string>')
@@ -390,7 +464,6 @@ class RegisterResource(Resource):
 
     @api_v1.expect(new_user)
     @ns.doc(security='apiKey')
-    @jwt_required
     def post(self):
         '''Register a user.Admin only'''
         parser = reqparse.RequestParser()
@@ -418,22 +491,19 @@ class RegisterResource(Resource):
         if User.get_by_email(data['email']):
             return {'message': 'This email is already taken'}, 409
 
-        logged_in_user = get_jwt_identity()
-        if User.isAdmin(logged_in_user):
-            User.save(self, username=data['username'],
-                      email=data['email'],
-                      password=User.generate_hash(data['password']))
+        User.save(self, username=data['username'],
+                  email=data['email'],
+                  password=User.generate_hash(data['password']))
 
-            user = User.get_by_username(data['username'])
-            user_json = user.json_dumps()
-            access_token = create_access_token(user_json['id'])
-            UserPermission.makeUser(self, user_id=user_json['id'])
-            user = User.get_by_username(data['username'])
-            user_json = user.json_dumps()
-            return {"message": "The user signed up successfully", "user": user_json,
-                    "permissions": UserPermission.get_user_permissions(user_json['id']),
-                    "access_token": access_token}, 201
-        return {"error": 401, "message": "Not authorized,only accessible by admin"}, 401
+        user = User.get_by_username(data['username'])
+        user_json = user.json_dumps()
+        access_token = create_access_token(user_json['id'])
+        UserPermission.makeUser(self, user_id=user_json['id'])
+        user = User.get_by_username(data['username'])
+        user_json = user.json_dumps()
+        return {"message": "The user signed up successfully", "user": user_json,
+                "permissions": UserPermission.get_user_permissions(user_json['id']),
+                "access_token": access_token}, 201
 
 
 role_fields = api_v1.model('Role', {

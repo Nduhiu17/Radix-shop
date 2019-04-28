@@ -43,14 +43,13 @@ class Database:
             """
         cursor.execute(sql_command)
 
-        # create saleproducts table
-        sql_command = """CREATE TABLE IF NOT EXISTS "public"."saleproducts"  (
+        # create stock table
+        sql_command = """CREATE TABLE IF NOT EXISTS "public"."stock"  (
         id SERIAL ,
-        sale_id INTEGER NOT NULL,
         product_id INTEGER NOT NULL,
         quantity INTEGER NOT NULL,
+        available BOOLEAN DEFAULT True NOT NULL,
         PRIMARY KEY (id),
-        FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE,
         FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
             )
             """
@@ -90,16 +89,33 @@ class Database:
             """
         cursor.execute(sql_command)
 
-        # create availableproducts table
-        sql_command = """CREATE TABLE IF NOT EXISTS "public"."availableproducts" (
+        # create salestock table
+        sql_command = """CREATE TABLE IF NOT EXISTS "public"."salestock" (
            id SERIAL ,
-           product_id INTEGER NOT NULL,
-           available BOOLEAN DEFAULT True NOT NULL,
+           sale_id INTEGER NOT NULL,
+           stock_id INTEGER NOT NULL,
            quantity INTEGER NOT NULL,
            PRIMARY KEY (id),
-           FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+           FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE,
+           FOREIGN KEY (stock_id) REFERENCES stock (id) ON DELETE CASCADE
                )
                """
+        cursor.execute(sql_command)
+
+        # create salestock table
+        sql_command = """CREATE TABLE IF NOT EXISTS "public"."soldstock" (
+            id SERIAL ,
+            name VARCHAR(255) NOT NULL,
+            sale_id INTEGER NOT NULL,
+            stock_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            PRIMARY KEY (id),
+            FOREIGN KEY (sale_id) REFERENCES sales (id) ON DELETE CASCADE,
+            FOREIGN KEY (stock_id) REFERENCES stock (id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+                )
+                """
         cursor.execute(sql_command)
 
     @classmethod
@@ -109,17 +125,33 @@ class Database:
         sql_command = """ DROP TABLE products CASCADE;
             """
         cursor.execute(sql_command)
-        # drop saleproducts table
-        sql_command = """ DROP TABLE saleproducts CASCADE;
+        # drop stock table
+        sql_command = """ DROP TABLE stock CASCADE;
                    """
         cursor.execute(sql_command)
-        # drop availableproducts table
-        sql_command = """ DROP TABLE availableproducts CASCADE;
+        # drop salestock table
+        sql_command = """ DROP TABLE salestock CASCADE;
                         """
         cursor.execute(sql_command)
         # drop sales table
         sql_command = """ DROP TABLE sales CASCADE;
                               """
+        cursor.execute(sql_command)
+        # drop soldstock table
+        sql_command = """ DROP TABLE soldstock CASCADE;
+                                    """
+        cursor.execute(sql_command)
+        # drop users table
+        sql_command = """ DROP TABLE users CASCADE;
+                                      """
+        cursor.execute(sql_command)
+        # drop permissions table
+        sql_command = """ DROP TABLE permissions CASCADE;
+                                             """
+        cursor.execute(sql_command)
+        # drop userpermissions table
+        sql_command = """ DROP TABLE userpermissions CASCADE;
+                                                   """
         cursor.execute(sql_command)
 
 
